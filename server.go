@@ -7,17 +7,14 @@ import (
 	"sync"
 )
 
-type id int
-
 type Server struct {
 	listener      net.Listener
-	clients       map[id]net.Conn
-	nextid        id
+	clients       map[string]net.Conn
 	clients_mutex sync.Mutex
 }
 
 func (s *Server) Launch() error {
-	if listener, err := net.Listen("tcp", "0.0.0.0:8080"); err != nil {
+	if listener, err := net.Listen("tcp", "localhost:8080"); err != nil {
 		fmt.Printf("server launch error: %v\n", err)
 		return err
 	} else {
@@ -26,49 +23,58 @@ func (s *Server) Launch() error {
 	return nil
 }
 
-func (s *Server) Accept() (id, net.Conn, error) {
+func (s *Server) Accept() (net.Conn, error) {
 
 	if conn, err := s.listener.Accept(); err != nil {
 		fmt.Printf("error occurred: %v\n", err)
-		return -1, nil, err
+		return nil, err
 	} else {
+		addr := conn.RemoteAddr().String()
 		s.clients_mutex.Lock()
-		s.clients[s.nextid] = conn
-		id := s.nextid
-		s.nextid++
+		s.clients[addr] = conn
 		s.clients_mutex.Unlock()
 		fmt.Println("user connected!")
-		return id, conn, nil
+		return conn, nil
 	}
 }
 
-func (s *Server) HandleClient(id id, conn net.Conn) error {
+func give_event(comand, message, addr string) string {
+	var str string
+	switch comand {
+	case "exit":
+		str = "user exitted!: " + addr
+	case "send":
+		str = "user " + addr + " sent: " + message
+	}
+	return str
+}
 
+func (s *Server) HandleClient(conn net.Conn) error {
+	addr := conn.RemoteAddr().String()
 	defer func() {
 		s.clients_mutex.Lock()
-		delete(s.clients, id)
+		delete(s.clients, addr)
 		s.clients_mutex.Unlock()
 		conn.Close()
 	}()
 	for {
-		comand, message, err := s.ReadFromClient(id, conn)
+		comand, message, err := s.ReadFromClient(conn)
 		if err != nil {
 			fmt.Printf("error occurred: %v\n", err)
 			return err
 		}
-		switch comand {
-		case "exit":
-			fmt.Printf("user exitted!: %d\n", id)
+		event := give_event(comand, message, addr)
+		if event != "" {
+			s.broadcast(event)
+			fmt.Println(event)
+		}
+		if comand == "exit" {
 			return nil
-		case "send":
-			fmt.Printf("user %d sent: %s\n", id, message)
-		case "":
-			fmt.Printf("user %d sent: empty string\n", id)
 		}
 	}
 }
 
-func (s *Server) ReadFromClient(id id, conn net.Conn) (string, string, error) {
+func (s *Server) ReadFromClient(conn net.Conn) (string, string, error) {
 
 	var input [1024]byte
 
@@ -89,16 +95,42 @@ func (s *Server) ReadFromClient(id id, conn net.Conn) (string, string, error) {
 	return comand, message, err
 }
 
+func (s *Server) response(message string, conn net.Conn) (int, error) {
+	n, err := conn.Write([]byte(message))
+	return n, err
+}
+
+func (s *Server) broadcast(event string) error {
+	s.clients_mutex.Lock()
+	var temp_clients = make([]net.Conn, 0, len(s.clients))
+	for _, conn := range s.clients {
+		temp_clients = append(temp_clients, conn)
+	}
+	s.clients_mutex.Unlock()
+
+	for _, conn := range temp_clients {
+		_, err := s.response(event, conn)
+		if err != nil {
+			fmt.Printf("error occurred: %v\n", err)
+			return err
+		}
+	}
+	return nil
+}
+
 func main() {
 
-	s := Server{clients: make(map[id]net.Conn)}
-	s.Launch()
-
+	s := Server{clients: make(map[string]net.Conn)}
+	err := s.Launch()
+	if err != nil {
+		return
+	}
 	for {
-		id, conn, err := s.Accept()
+		conn, err := s.Accept()
 		if err == nil {
-			go s.HandleClient(id, conn)
+			go s.HandleClient(conn)
 		}
+
 	}
 
 }

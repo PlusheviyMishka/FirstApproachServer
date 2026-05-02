@@ -8,12 +8,13 @@ import (
 )
 
 type Client struct {
-	Conn net.Conn
-	buf  [1024]byte
+	Conn       net.Conn
+	buf        [1024]byte
+	server_buf [1024]byte
 }
 
 func (client *Client) connect() error {
-	if conn, err := net.Dial("tcp", ":8080"); err != nil {
+	if conn, err := net.Dial("tcp", "localhost:8080"); err != nil {
 		fmt.Printf("error occured! %v \n", err)
 		return err
 	} else {
@@ -36,6 +37,25 @@ func (client *Client) readData() (int, error) {
 	return n, err
 }
 
+func (client *Client) RecieveFromServer() (int, error) {
+	if n, err := client.Conn.Read(client.server_buf[:]); err == nil {
+		return n, nil
+	} else {
+		return 0, err
+	}
+}
+
+func (client *Client) HandleServerMessage() {
+	for {
+		n, err := client.RecieveFromServer()
+		if err != nil {
+			return
+		}
+		input := string(client.server_buf[:n])
+		fmt.Printf("%s\n", input)
+	}
+}
+
 func main() {
 
 	client := Client{}
@@ -44,6 +64,7 @@ func main() {
 		fmt.Printf("error occured! %v \n", err)
 		return
 	} else {
+		go client.HandleServerMessage()
 		defer client.Conn.Close()
 		for {
 			n, err := client.readData()
