@@ -57,11 +57,17 @@ func (s *Server) HandleClient(conn net.Conn) error {
 		s.clients_mutex.Unlock()
 		conn.Close()
 	}()
+
+	pendingBuffer := make([]byte, 0, 1024)
+
 	for {
-		comand, message, err := s.ReadFromClient(conn)
+		comand, message, err := s.ReadFromClient(conn, &pendingBuffer)
 		if err != nil {
 			fmt.Printf("error occurred: %v\n", err)
 			return err
+		}
+		if comand == "" {
+			continue
 		}
 		event := give_event(comand, message, addr)
 		if event != "" {
@@ -74,11 +80,29 @@ func (s *Server) HandleClient(conn net.Conn) error {
 	}
 }
 
-func (s *Server) ReadFromClient(conn net.Conn) (string, string, error) {
+func (s *Server) ReadFromClient(conn net.Conn, pending *[]byte) (string, string, error) {
 
-	var input [1024]byte
+	var (
+		readBuf     [1024]byte
+		parse_input = make([]string, 0)
+		line        = make([]byte, 0)
+	)
 
-	n, err := conn.Read(input[:])
+	for i, b := range *pending {
+		if b == '\n' {
+			line = (*pending)[:i]
+			*pending = (*pending)[i+1:]
+			parse_input = strings.Fields((string(line[:])))
+			if len(parse_input) == 0 {
+				return "", "", nil
+			}
+			comand := parse_input[0]
+			message := strings.Join(parse_input[1:], " ")
+			return comand, message, nil
+		}
+	}
+
+	n, err := conn.Read(readBuf[:])
 	if err != nil {
 		fmt.Printf("error occurred: %v\n", err)
 		return "", "", err
@@ -86,7 +110,19 @@ func (s *Server) ReadFromClient(conn net.Conn) (string, string, error) {
 	if n == 0 {
 		return "", "", nil
 	}
-	parse_input := strings.Fields((string(input[:n])))
+	for _, b := range readBuf[:n] {
+		*pending = append(*pending, b)
+	}
+
+	for i, b := range *pending {
+		if b == '\n' {
+			line = (*pending)[:i]
+			*pending = (*pending)[i+1:]
+			parse_input = strings.Fields((string(line[:])))
+			break
+		}
+	}
+
 	if len(parse_input) == 0 {
 		return "", "", nil
 	}
