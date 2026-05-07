@@ -94,7 +94,7 @@ func (s *Server) ReadFromClient(conn net.Conn, pending *[]byte) (string, string,
 			*pending = (*pending)[i+1:]
 			parse_input = strings.Fields((string(line[:])))
 			if len(parse_input) == 0 {
-				return "", "", nil
+				break
 			}
 			comand := parse_input[0]
 			message := strings.Join(parse_input[1:], " ")
@@ -107,9 +107,7 @@ func (s *Server) ReadFromClient(conn net.Conn, pending *[]byte) (string, string,
 		fmt.Printf("error occurred: %v\n", err)
 		return "", "", err
 	}
-	if n == 0 {
-		return "", "", nil
-	}
+
 	for _, b := range readBuf[:n] {
 		*pending = append(*pending, b)
 	}
